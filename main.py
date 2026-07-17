@@ -69,6 +69,7 @@ from response_engine import (
     respuesta_sin_resultado,
     contiene_placeholder,
 )
+from bitrix_connector.router import router as bitrix_router
 
 
 # ─────────────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(bitrix_router)
 
 
 @app.on_event("startup")
