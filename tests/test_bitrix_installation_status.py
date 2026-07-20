@@ -8,6 +8,8 @@ from bitrix_connector.config import load_settings
 from bitrix_connector.installation_status import (
     OAuthInstallationStatusResponse,
     OAuthInstallationStatusService,
+    OAuthInstallationStatusStorageUnavailable,
+    OAuthInstallationStatusStoredDocumentInvalid,
 )
 from bitrix_connector.installation_status_factory import (
     OAuthInstallationStatusFactory,
@@ -71,6 +73,22 @@ class RecordingReader:
         return self.response
 
 
+class FailingStore:
+    def __init__(self, error):
+        self.error = error
+
+    async def get_installation_by_domain(self, domain):
+        raise self.error
+
+
+class FailingReader:
+    def __init__(self, error):
+        self.error = error
+
+    async def get_status(self, domain):
+        raise self.error
+
+
 class FakeCollection:
     pass
 
@@ -130,6 +148,32 @@ class InstallationStatusServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result.revision)
         self.assertIsNone(result.updated_at)
         self.assertIsNone(result.expires_at)
+
+    async def test_storage_failure_is_classified_without_leaking_cause(self):
+        with self.assertRaises(OAuthInstallationStatusStorageUnavailable) as caught:
+            await OAuthInstallationStatusService(
+                FailingStore(RuntimeError("mongodb://user:secret@private.invalid"))
+            ).get_status("portal.bitrix24.test")
+
+        self.assertEqual(
+            str(caught.exception),
+            "oauth_installation_storage_unavailable",
+        )
+        self.assertNotIn("secret", str(caught.exception))
+
+    async def test_invalid_document_is_classified_without_leaking_cause(self):
+        with self.assertRaises(
+            OAuthInstallationStatusStoredDocumentInvalid
+        ) as caught:
+            await OAuthInstallationStatusService(
+                FailingStore(ValueError("private malformed token document"))
+            ).get_status("portal.bitrix24.test")
+
+        self.assertEqual(
+            str(caught.exception),
+            "stored_oauth_installation_invalid",
+        )
+        self.assertNotIn("private", str(caught.exception))
 
 
 class InstallationStatusFactoryTests(unittest.IsolatedAsyncioTestCase):
@@ -226,6 +270,40 @@ class InstallationStatusRouterTests(unittest.TestCase):
             "review-secret",
         ):
             self.assertNotIn(secret, result.text)
+
+    def test_authorized_route_distinguishes_safe_failure_categories(self):
+        scenarios = (
+            (
+                OAuthInstallationStatusStorageUnavailable(
+                    "mongodb://user:secret@private.invalid"
+                ),
+                "installation_diagnostic_storage_unavailable",
+            ),
+            (
+                OAuthInstallationStatusStoredDocumentInvalid(
+                    "private malformed token document"
+                ),
+                "installation_diagnostic_stored_document_invalid",
+            ),
+        )
+
+        for error, expected_detail in scenarios:
+            with self.subTest(expected_detail=expected_detail):
+                result = TestClient(
+                    self.app(FailingReader(error), diagnostic_settings())
+                ).get(
+                    "/bitrix-connector/installation-status",
+                    headers={"Authorization": "Bearer review-secret"},
+                )
+
+                self.assertEqual(result.status_code, 503)
+                self.assertEqual(result.json()["detail"], expected_detail)
+                for secret in (
+                    "private",
+                    "mongodb://",
+                    "review-secret",
+                ):
+                    self.assertNotIn(secret, result.text)
 
 
 if __name__ == "__main__":

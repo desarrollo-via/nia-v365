@@ -7,7 +7,11 @@ from typing import Callable, Optional, Protocol
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from .config import ConnectorSettings, load_settings
-from .installation_status import OAuthInstallationStatusResponse
+from .installation_status import (
+    OAuthInstallationStatusResponse,
+    OAuthInstallationStatusStorageUnavailable,
+    OAuthInstallationStatusStoredDocumentInvalid,
+)
 from .installation_status_factory import (
     OAuthInstallationStatusConfigurationError,
     OAuthInstallationStatusFactory,
@@ -69,11 +73,21 @@ def create_installation_status_router(
             except Exception as exc:
                 raise HTTPException(
                     status_code=503,
-                    detail="installation_diagnostic_unavailable",
+                    detail="installation_diagnostic_storage_unavailable",
                 ) from exc
 
         try:
             return await selected_reader.get_status(settings.bitrix_domain or "")
+        except OAuthInstallationStatusStoredDocumentInvalid as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="installation_diagnostic_stored_document_invalid",
+            ) from exc
+        except OAuthInstallationStatusStorageUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="installation_diagnostic_storage_unavailable",
+            ) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=503,

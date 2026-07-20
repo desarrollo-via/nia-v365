@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .oauth import BitrixOAuthInstallation
 
@@ -28,12 +28,29 @@ class OAuthInstallationStatusStore(Protocol):
     ) -> Optional[BitrixOAuthInstallation]: ...
 
 
+class OAuthInstallationStatusStorageUnavailable(RuntimeError):
+    """La consulta al almacén no pudo completarse."""
+
+
+class OAuthInstallationStatusStoredDocumentInvalid(RuntimeError):
+    """El documento encontrado no cumple el contrato OAuth persistido."""
+
+
 class OAuthInstallationStatusService:
     def __init__(self, store: OAuthInstallationStatusStore) -> None:
         self._store = store
 
     async def get_status(self, domain: str) -> OAuthInstallationStatusResponse:
-        installation = await self._store.get_installation_by_domain(domain)
+        try:
+            installation = await self._store.get_installation_by_domain(domain)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise OAuthInstallationStatusStoredDocumentInvalid(
+                "stored_oauth_installation_invalid"
+            ) from exc
+        except Exception as exc:
+            raise OAuthInstallationStatusStorageUnavailable(
+                "oauth_installation_storage_unavailable"
+            ) from exc
         if installation is None:
             return OAuthInstallationStatusResponse(
                 status="not_found",
