@@ -391,6 +391,36 @@ class InstallationRouterTests(unittest.TestCase):
         ):
             self.assertNotIn(secret, response.text)
 
+    def test_callback_log_contains_only_safe_outcome(self):
+        installer = RecordingInstaller(
+            result=OAuthInstallationResult(
+                status=OAuthInstallationStatus.INSTALLED,
+                reason="installation_stored",
+                persisted=True,
+                revision=1,
+            )
+        )
+        with self.assertLogs(
+            "nia.bitrix_connector.installation",
+            level="INFO",
+        ) as captured:
+            response = TestClient(test_app(installer, settings())).post(
+                "/bitrix-connector/installation",
+                data=installation_form(),
+            )
+
+        log_output = "\n".join(captured.output)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("status=installed", log_output)
+        self.assertIn("reason=installation_stored", log_output)
+        self.assertIn("persisted=True", log_output)
+        for secret in (
+            "access-secret",
+            "refresh-secret",
+            "application-secret",
+        ):
+            self.assertNotIn(secret, log_output)
+
     def test_invalid_rejected_and_storage_failure_have_stable_statuses(self):
         scenarios = (
             (

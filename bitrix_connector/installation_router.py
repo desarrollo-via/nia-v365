@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional, Protocol
 
 from fastapi import APIRouter, Request
@@ -19,6 +20,25 @@ from .installation_factory import (
     OAuthInstallationFactory,
     OAuthInstallationResources,
 )
+
+
+logger = logging.getLogger("nia.bitrix_connector.installation")
+
+
+def _log_outcome(
+    *,
+    status: str,
+    reason: str,
+    persisted: bool = False,
+    revision: Optional[int] = None,
+) -> None:
+    logger.info(
+        "installation_callback status=%s reason=%s persisted=%s revision=%s",
+        status,
+        reason,
+        persisted,
+        revision,
+    )
 
 
 class OAuthInstaller(Protocol):
@@ -44,6 +64,10 @@ def create_installation_router(
     ):
         settings = settings_loader()
         if not settings.installation_configuration_valid:
+            _log_outcome(
+                status="rejected",
+                reason="installation_configuration_invalid",
+            )
             return JSONResponse(
                 status_code=503,
                 content={
@@ -54,6 +78,10 @@ def create_installation_router(
                 },
             )
         if not settings.installation_enabled:
+            _log_outcome(
+                status="rejected",
+                reason="installation_route_disabled",
+            )
             return JSONResponse(
                 status_code=503,
                 content={
@@ -71,6 +99,10 @@ def create_installation_router(
                 for key, value in incoming.multi_items()
             }
         except Exception:
+            _log_outcome(
+                status="invalid",
+                reason="invalid_installation_payload",
+            )
             return JSONResponse(
                 status_code=400,
                 content={
@@ -88,6 +120,10 @@ def create_installation_router(
                 resources = await factory.build(settings)
                 selected_installer = resources.installer
             except OAuthInstallationConfigurationError:
+                _log_outcome(
+                    status="rejected",
+                    reason="installation_service_not_configured",
+                )
                 return JSONResponse(
                     status_code=503,
                     content={
@@ -98,6 +134,10 @@ def create_installation_router(
                     },
                 )
             except Exception:
+                _log_outcome(
+                    status="rejected",
+                    reason="oauth_installation_storage_unavailable",
+                )
                 return JSONResponse(
                     status_code=503,
                     headers={"Retry-After": "5"},
@@ -115,6 +155,10 @@ def create_installation_router(
             OAuthInstallationPersistenceError,
             OAuthInstallationVerificationError,
         ):
+            _log_outcome(
+                status="rejected",
+                reason="oauth_installation_temporarily_unavailable",
+            )
             return JSONResponse(
                 status_code=503,
                 headers={"Retry-After": "5"},
@@ -126,6 +170,10 @@ def create_installation_router(
                 },
             )
         except Exception:
+            _log_outcome(
+                status="invalid",
+                reason="invalid_installation_payload",
+            )
             return JSONResponse(
                 status_code=400,
                 content={
@@ -139,6 +187,12 @@ def create_installation_router(
             if resources is not None:
                 await resources.close()
 
+        _log_outcome(
+            status=result.status.value,
+            reason=result.reason,
+            persisted=result.persisted,
+            revision=result.revision,
+        )
         if result.status is OAuthInstallationStatus.INVALID:
             return JSONResponse(status_code=400, content=result.model_dump(mode="json"))
         if result.status is OAuthInstallationStatus.REJECTED:

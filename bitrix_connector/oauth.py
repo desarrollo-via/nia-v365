@@ -120,6 +120,11 @@ class BitrixOAuthStore(Protocol):
         member_id: str,
     ) -> Optional[BitrixOAuthInstallation]: ...
 
+    async def get_installation_by_domain(
+        self,
+        domain: str,
+    ) -> Optional[BitrixOAuthInstallation]: ...
+
     async def replace_tokens(
         self,
         member_id: str,
@@ -193,6 +198,20 @@ class MongoBitrixOAuthStore:
         document = await self._collection.find_one(
             {"member_id": _required_text(member_id, "member_id")},
             {"_id": 0},
+        )
+        if document is None:
+            return None
+        return BitrixOAuthInstallation.model_validate(document)
+
+    async def get_installation_by_domain(
+        self,
+        domain: str,
+    ) -> Optional[BitrixOAuthInstallation]:
+        normalized = _required_text(domain, "domain").lower()
+        document = await self._collection.find_one(
+            {"domain": normalized},
+            {"_id": 0},
+            sort=[("updated_at", -1)],
         )
         if document is None:
             return None

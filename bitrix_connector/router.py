@@ -9,6 +9,7 @@ from .config import ConnectorMode, load_settings
 from .event_parser import parse_webhook_form
 from .idempotency import build_event_key
 from .installation_router import create_installation_router
+from .installation_status_router import create_installation_status_router
 from .models import (
     ConnectorHealth,
     ConnectorIngestionStatus,
@@ -24,6 +25,7 @@ from .service import ConnectorPersistenceError
 router = APIRouter(prefix="/bitrix-connector", tags=["Bitrix Connector"])
 connector_runtime = ConnectorRuntime()
 router.include_router(create_installation_router())
+router.include_router(create_installation_status_router())
 router.include_router(create_review_router(connector_runtime))
 
 

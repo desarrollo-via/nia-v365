@@ -129,7 +129,7 @@ class FakeMongoCollection:
             self.document[field] += increment
         return SimpleNamespace(modified_count=1)
 
-    async def find_one(self, selector, projection):
+    async def find_one(self, selector, projection, sort=None):
         if self.document is None:
             return None
         if any(self.document.get(key) != value for key, value in selector.items()):
@@ -208,6 +208,23 @@ class OAuthStoreTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("old-access-secret", repr(before))
         self.assertNotIn("old-refresh-secret", repr(before))
+
+    async def test_installation_can_be_read_by_domain_without_exposing_it(self):
+        collection = FakeMongoCollection()
+        store = MongoBitrixOAuthStore(collection)
+        await store.save_installation(installation())
+
+        stored = await store.get_installation_by_domain(
+            "PORTAL.BITRIX24.TEST"
+        )
+        missing = await store.get_installation_by_domain(
+            "other.bitrix24.test"
+        )
+
+        self.assertEqual(stored.member_id, MEMBER_ID)
+        self.assertIsNone(missing)
+        self.assertNotIn("old-access-secret", repr(stored))
+        self.assertNotIn("old-refresh-secret", repr(stored))
 
 
 class OAuthTransportTests(unittest.IsolatedAsyncioTestCase):
